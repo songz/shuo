@@ -4,9 +4,9 @@ Full-screen image display app for different states.
 Press number keys 1-7 to switch between different face states.
 """
 
-import os
 import pygame
 import sys
+from load_face import load_face
 
 # Initialize Pygame
 pygame.init()
@@ -26,56 +26,23 @@ else:
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
 pygame.display.set_caption("Tammy - Face Display")
 
-# Define the state folders and their corresponding image files
-FACES_DIR = os.path.join(os.path.dirname(__file__), 'faces')
+# Define the state folders and their key mappings
 STATES = {
-    pygame.K_1: ('capturing', 'capturing 01.png'),
-    pygame.K_2: ('error', 'error 01.png'),
-    pygame.K_3: ('idle', 'idle 01.png'),
-    pygame.K_4: ('listening', 'listening 01.png'),
-    pygame.K_5: ('speaking', 'speaking 01.png'),
-    pygame.K_6: ('thinking', 'thinking 01.png'),
-    pygame.K_7: ('warmup', 'warmup 01.png'),
+    pygame.K_1: 'capturing',
+    pygame.K_2: 'error',
+    pygame.K_3: 'idle',
+    pygame.K_4: 'listening',
+    pygame.K_5: 'speaking',
+    pygame.K_6: 'thinking',
+    pygame.K_7: 'warmup',
 }
-
-# Load and prepare an image
-def load_image(state_folder, image_filename):
-    """Load an image and scale it to fit the screen."""
-    image_path = os.path.join(FACES_DIR, state_folder, image_filename)
-    
-    if not os.path.exists(image_path):
-        print(f"Warning: Image not found at {image_path}")
-        return None
-    
-    try:
-        image = pygame.image.load(image_path)
-        # Scale the image to fill the screen while maintaining aspect ratio
-        image.convert()
-        
-        # Calculate scaling to fill screen while maintaining aspect ratio
-        image_width, image_height = image.get_size()
-        screen_width, screen_height = SCREEN_WIDTH, SCREEN_HEIGHT
-        
-        # Scale to fill the screen
-        width_ratio = screen_width / image_width
-        height_ratio = screen_height / image_height
-        scale_factor = max(width_ratio, height_ratio)
-        
-        new_width = int(image_width * scale_factor)
-        new_height = int(image_height * scale_factor)
-        image = pygame.transform.scale(image, (new_width, new_height))
-        
-        return image
-    except Exception as e:
-        print(f"Error loading image {image_path}: {e}")
-        return None
 
 # Create a blank black surface as default
 current_image = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
 current_image.fill((0, 0, 0))
 
 # Load the first state (capturing) by default
-first_state = load_image('capturing', 'capturing 01.png')
+first_state = load_face('capturing', SCREEN_WIDTH, SCREEN_HEIGHT)
 if first_state:
     # Center the image on the screen
     x = (SCREEN_WIDTH - first_state.get_width()) // 2
@@ -112,10 +79,10 @@ while running:
         elif event.type == pygame.KEYDOWN:
             # Check if it's a number key (1-7)
             if event.key in STATES:
-                state_folder, image_filename = STATES[event.key]
+                state_folder = STATES[event.key]
                 print(f"Loading {state_folder}...")
                 
-                image = load_image(state_folder, image_filename)
+                image = load_face(state_folder, SCREEN_WIDTH, SCREEN_HEIGHT)
                 if image:
                     # Clear screen with black
                     screen.fill((0, 0, 0))
