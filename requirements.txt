@@ -1,1 +1,5 @@
 pygame>=2.6.0
+
+# microphone & wakeword
+sounddevice>=0.4.10
+openwakeword>=0.4.0
