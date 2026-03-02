@@ -67,8 +67,8 @@ current_state = 'warmup'
 show_state(current_state)
 
 # create wakeword listener; by default it loads built-in models
-# create wakeword listener; enable debug to see incoming audio levels
-listener = WakewordListener(debug=True, threshold=0.9)
+# create wakeword listener with 2-second window to capture longer phrases
+listener = WakewordListener(debug=True, threshold=0.9, window_seconds=2.0)
 listener.start()
 
 # once the mic is active, switch to idle

@@ -4,6 +4,7 @@ Wakeword detection helper using openwakeword and sounddevice.
 
 import threading
 import queue
+import os
 import sounddevice as sd
 import numpy as np
 import openwakeword
@@ -25,17 +26,35 @@ class WakewordListener:
     printed so you can verify the microphone is capturing sound.
     """
 
-    def __init__(self, model_paths=None, samplerate=None, blocksize=None,
+    def __init__(self, samplerate=None,
                  threshold: float = 0.5, debug: bool = False,
-                 window_seconds: float | None = None):
+                 window_seconds: float = 0.08):
         """Create a listener.
 
-        "window_seconds" controls how much audio (in seconds) is fed to the
-        model at once.  It defaults to 0.08 (80 ms) for a quick response, but
-        you may set it to ~2.0 for a longer wake phrase.  If both
-        ``blocksize`` and ``window_seconds`` are provided, ``window_seconds``
-        takes precedence.
+        ``window_seconds`` controls how much audio (in seconds) is fed to the
+        model at once.  A 0.08‑second window is the default because it lets the
+        detector respond very quickly.  If your wake phrase is longer than
+        the window you should increase this value accordingly (e.g. 1–2
+        seconds).  ``window_seconds`` now *is* the only way to influence the
+        internal buffer size; the old ``blocksize`` parameter has been
+        removed.
+
+        Note that using a fixed, non‑overlapping window means audio that
+        straddles the boundary between two chunks could be split and never
+        be seen in its entirety.  For simple setups the easiest fix is to
+        make ``window_seconds`` at least as long as the longest expected
+        phrase.  If you need both long phrases and fast reactions you can
+        later add overlapping windows (the callback could keep the last N
+        seconds and run ``predict`` on it every 80 ms, for example).
         """
+        # locate wakeword.onnx in the project root
+        model_path = os.path.join(os.path.dirname(__file__), "wakeword.onnx")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(
+                f"Custom wakeword model not found at {model_path}. "
+                "Please place your trained wakeword.onnx in the project root."
+            )
+        
         # determine samplerate from sounddevice default if not provided
         if samplerate is None:
             # check sd.default first
@@ -50,15 +69,8 @@ class WakewordListener:
                     samplerate = 16000
         self.samplerate = int(samplerate)
 
-        # compute blocksize from window_seconds when given; otherwise keep
-        # existing behaviour.
-        if window_seconds is not None:
-            self.blocksize = int(window_seconds * self.samplerate)
-        elif blocksize is None:
-            # blocksize defaults to 80ms of audio (used by openwakeword)
-            self.blocksize = int(0.08 * self.samplerate)
-        else:
-            self.blocksize = blocksize
+        # window_seconds now directly defines how many samples we buffer
+        self.blocksize = int(window_seconds * self.samplerate)
 
         self.event_queue = queue.Queue()
         self._stop_event = threading.Event()
@@ -67,17 +79,14 @@ class WakewordListener:
         # RMS floor to help prevent triggering on near-silent noise
         self.min_rms = 0.02
 
-        # prepare model list
-        if model_paths is None:
-            model_paths = openwakeword.get_pretrained_model_paths()
-        elif isinstance(model_paths, str):
-            model_paths = [model_paths]
+        # prepare model list with custom wakeword
+        model_paths = [model_path]
 
-        # debug info about chosen sample rate and blocksize
+        # debug info about chosen sample rate and window size
         if self.debug:
-            print(f"[wakeword debug] samplerate={self.samplerate}, blocksize={self.blocksize}")
+            print(f"[wakeword debug] samplerate={self.samplerate}, window_samples={self.blocksize}")
 
-        # instantiate openwakeword model with provided paths
+        # instantiate openwakeword model with custom wakeword.onnx
         self.model = openwakeword.Model(wakeword_model_paths=model_paths)
 
         # buffer for accumulating samples (monophonic float32)
@@ -126,16 +135,18 @@ class WakewordListener:
                 # scores is a dict of {model_name: score}
                 if scores:
                     max_score = max(scores.values())
+                    max_model = max(scores, key=scores.get)
                     # require both model score and a minimum energy
                     if max_score >= self.threshold and rms >= self.min_rms:
                         if self.debug:
-                            print(f"[wakeword debug] detection score={max_score}")
+                            print(f"[wakeword debug] detection: model={max_model}, score={max_score:.7f}")
                         self.event_queue.put(True)
 
         try:
+            # we request no particular blocksize from sounddevice; our own
+            # buffering logic uses ``self.blocksize`` samples per window.
             self.stream = sd.InputStream(channels=1,
                                          samplerate=self.samplerate,
-                                         blocksize=self.blocksize,
                                          callback=audio_callback)
             self.stream.start()
             # keep thread alive until stopped
