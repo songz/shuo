@@ -68,7 +68,7 @@ show_state(current_state)
 
 # create wakeword listener; by default it loads built-in models
 # create wakeword listener with 2-second window to capture longer phrases
-listener = WakewordListener(debug=True, threshold=0.9, window_seconds=2.0)
+listener = WakewordListener()
 listener.start()
 
 # once the mic is active, switch to idle
@@ -118,7 +118,7 @@ while running:
 
         # record additional audio (user speech) for a short duration
         RECORD_SECONDS = 4.0
-        sr = listener.samplerate
+        sr = listener.sample_rate
         print(f"Recording {RECORD_SECONDS}s at {sr}Hz for ASR...")
         try:
             import sounddevice as sd
