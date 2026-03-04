@@ -7,13 +7,18 @@ chunks at the correct rate, regardless of other activity.
 
 import json
 import asyncio
+import time
 from typing import List, Optional, Callable
 
 from fastapi import WebSocket
 
+from .local_audio import LocalAudioIO
+
 from ..log import ServiceLogger
 
 log = ServiceLogger("Player")
+
+LOCAL_TAIL_TIMEOUT_S = 1.0
 
 
 class AudioPlayer:
@@ -29,12 +34,14 @@ class AudioPlayer:
     
     def __init__(
         self,
-        websocket: WebSocket,
-        stream_sid: str,
+        websocket: Optional[WebSocket],
+        stream_sid: Optional[str],
+        local_audio: Optional[LocalAudioIO] = None,
         on_done: Optional[Callable[[], None]] = None,
     ):
         self._websocket = websocket
         self._stream_sid = stream_sid
+        self._local_audio = local_audio
         self._on_done = on_done
         
         self._chunks: List[str] = []
@@ -42,6 +49,7 @@ class AudioPlayer:
         self._running = False
         self._index = 0
         self._tts_done = False
+        self._last_chunk_at = 0.0
     
     @property
     def is_playing(self) -> bool:
@@ -56,6 +64,7 @@ class AudioPlayer:
         self._index = 0
         self._running = True
         self._tts_done = False
+        self._last_chunk_at = time.monotonic()
         
         self._task = asyncio.create_task(self._playback_loop())
     
@@ -65,6 +74,7 @@ class AudioPlayer:
             await self.start()
         
         self._chunks.append(chunk)
+        self._last_chunk_at = time.monotonic()
     
     def mark_tts_done(self) -> None:
         """Signal that TTS is complete - no more chunks coming."""
@@ -79,6 +89,7 @@ class AudioPlayer:
         self._index = 0
         self._running = True
         self._tts_done = True
+        self._last_chunk_at = time.monotonic()
         
         self._task = asyncio.create_task(self._playback_loop())
     
@@ -97,6 +108,7 @@ class AudioPlayer:
         self._chunks = []
         self._index = 0
         self._tts_done = False
+        self._last_chunk_at = 0.0
         
         await self._send_clear()
     
@@ -116,11 +128,24 @@ class AudioPlayer:
                     chunk = self._chunks[self._index]
                     await self._send_audio(chunk)
                     self._index += 1
-                    await asyncio.sleep(0.020)
+
+                    if self._local_audio is not None:
+                        await asyncio.sleep(0)
+                    else:
+                        await asyncio.sleep(0.020)
                     
                 elif self._tts_done:
+                    if self._local_audio is not None and self._local_audio.pending_audio_bytes() > 0:
+                        await asyncio.sleep(0.010)
+                        continue
                     break
                 else:
+                    if self._local_audio is not None:
+                        pending = self._local_audio.pending_audio_bytes()
+                        idle_s = time.monotonic() - self._last_chunk_at
+                        if pending == 0 and idle_s >= LOCAL_TAIL_TIMEOUT_S:
+                            log.info("Local tail timeout reached; completing turn")
+                            break
                     await asyncio.sleep(0.010)
             
             if self._running:
@@ -136,6 +161,13 @@ class AudioPlayer:
     
     async def _send_audio(self, payload: str) -> None:
         """Send a single audio chunk to Twilio."""
+        if self._local_audio is not None:
+            await self._local_audio.play_ulaw_base64(payload)
+            return
+
+        if not self._websocket or not self._stream_sid:
+            return
+
         message = {
             "event": "media",
             "streamSid": self._stream_sid,
@@ -147,6 +179,13 @@ class AudioPlayer:
     
     async def _send_clear(self) -> None:
         """Send clear message to Twilio to flush audio buffer."""
+        if self._local_audio is not None:
+            self._local_audio.clear_playback()
+            return
+
+        if not self._websocket or not self._stream_sid:
+            return
+
         message = {
             "event": "clear",
             "streamSid": self._stream_sid

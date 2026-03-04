@@ -12,6 +12,7 @@ Outbound mode additionally initiates a call to the specified number.
 
 import os
 import sys
+import asyncio
 import signal
 import threading
 import time
@@ -22,6 +23,7 @@ from dotenv import load_dotenv
 from shuo.server import app
 from shuo.services.twilio_client import make_outbound_call
 from shuo.log import setup_logging, Logger, get_logger
+from shuo.conversation import run_conversation_local
 import shuo.server as server_module
 
 # Load environment variables
@@ -32,18 +34,30 @@ setup_logging()
 logger = get_logger("shuo")
 
 
-def check_environment() -> bool:
+def check_environment(local_mode: bool = False) -> bool:
     """Check that all required environment variables are set."""
     required_vars = [
-        "TWILIO_ACCOUNT_SID",
-        "TWILIO_AUTH_TOKEN",
-        "TWILIO_PHONE_NUMBER",
-        "TWILIO_PUBLIC_URL",
         "DEEPGRAM_API_KEY",
-        "OPENAI_API_KEY",
         "ELEVENLABS_API_KEY",
     ]
-    
+
+    if not local_mode:
+        required_vars.extend([
+            "TWILIO_ACCOUNT_SID",
+            "TWILIO_AUTH_TOKEN",
+            "TWILIO_PHONE_NUMBER",
+            "TWILIO_PUBLIC_URL",
+        ])
+
+    provider = os.getenv("LLM_PROVIDER", "auto").strip().lower()
+    if provider == "openai":
+        required_vars.append("OPENAI_API_KEY")
+    elif provider == "groq":
+        required_vars.append("GROQ_API_KEY")
+    elif not (os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")):
+        logger.error("Missing environment variables: OPENAI_API_KEY or GROQ_API_KEY")
+        return False
+
     missing = [var for var in required_vars if not os.getenv(var)]
     
     if missing:
@@ -75,16 +89,32 @@ def start_server(port: int) -> None:
 def main():
     """Main entry point."""
     phone_number = None
+    local_mode = False
 
-    if len(sys.argv) >= 2:
-        phone_number = sys.argv[1]
-        if not phone_number.startswith("+"):
-            print("Error: Phone number must start with +")
-            sys.exit(1)
+    args = sys.argv[1:]
+    if args:
+        if args[0] == "--local":
+            local_mode = True
+            if len(args) > 1:
+                print("Error: --local does not accept a phone number")
+                sys.exit(1)
+        else:
+            phone_number = args[0]
+            if not phone_number.startswith("+"):
+                print("Error: Phone number must start with +")
+                sys.exit(1)
 
     # Check environment
-    if not check_environment():
+    if not check_environment(local_mode=local_mode):
         sys.exit(1)
+
+    if local_mode:
+        logger.info("Local mode — microphone/speaker (Ctrl+C to end)")
+        try:
+            asyncio.run(run_conversation_local())
+        except KeyboardInterrupt:
+            Logger.shutdown()
+        return
     
     # Get port from environment
     port = int(os.getenv("PORT", "3040"))

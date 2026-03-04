@@ -4,6 +4,8 @@ A voice agent framework in ~600 lines of Python.
 
 ```bash
 python main.py +1234567890
+# or run local mic/speaker mode (no phone call)
+python main.py --local
 ```
 
 ```
@@ -57,13 +59,17 @@ shuo/
 
 ## Setup
 
-Requires Python 3.9+, [ngrok](https://ngrok.com/), and API keys for Twilio, Deepgram, OpenAI, and ElevenLabs.
+Requires Python 3.9+ and API keys for Deepgram + ElevenLabs + one LLM provider (OpenAI or Groq).
+For phone-call mode you also need Twilio and [ngrok](https://ngrok.com/).
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env   # fill in your keys
 ngrok http 3040        # in another terminal
 python main.py +1234567890
+
+# local mode (no Twilio / ngrok)
+python main.py --local
 ```
 
 ## Tests

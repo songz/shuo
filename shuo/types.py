@@ -86,19 +86,37 @@ Event = Union[
 
 @dataclass(frozen=True)
 class FeedFluxAction:
-    """Send audio to Deepgram Flux."""
+    """
+    Send incoming user audio to Deepgram Flux.
+
+    Example:
+    - User is currently speaking; each audio chunk is forwarded to Flux for
+      transcription + turn detection.
+    """
     audio_bytes: bytes
 
 
 @dataclass(frozen=True)
 class StartAgentTurnAction:
-    """Start agent response pipeline."""
+    """
+    Start the assistant response pipeline (LLM -> TTS -> playback).
+
+    Example:
+    - User finishes saying "What's the weather?" and Flux emits EndOfTurn;
+      the assistant begins generating/speaking a response.
+    """
     transcript: str
 
 
 @dataclass(frozen=True)
 class ResetAgentTurnAction:
-    """Cancel agent response and clear Twilio buffer."""
+    """
+    Cancel current assistant response and clear playback buffer.
+
+    Examples:
+    - User barges in while assistant is speaking ("Wait, stop").
+    - Stream ends while assistant is still responding.
+    """
     pass
 
 

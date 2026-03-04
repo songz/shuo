@@ -20,6 +20,7 @@ from .services.llm import LLMService
 from .services.tts import TTSService
 from .services.tts_pool import TTSPool
 from .services.player import AudioPlayer
+from .services.local_audio import LocalAudioIO
 from .tracer import Tracer
 from .log import ServiceLogger
 
@@ -42,17 +43,19 @@ class Agent:
 
     def __init__(
         self,
-        websocket: WebSocket,
+        websocket: Optional[WebSocket],
         stream_sid: str,
         on_done: Callable[[], None],
         tts_pool: TTSPool,
         tracer: Tracer,
+        local_audio: Optional[LocalAudioIO] = None,
     ):
         self._websocket = websocket
         self._stream_sid = stream_sid
         self._on_done = on_done
         self._tts_pool = tts_pool
         self._tracer = tracer
+        self._local_audio = local_audio
 
         # Persistent LLM -- keeps conversation history across turns
         self._llm = LLMService(
@@ -113,6 +116,7 @@ class Agent:
         self._player = AudioPlayer(
             websocket=self._websocket,
             stream_sid=self._stream_sid,
+            local_audio=self._local_audio,
             on_done=self._on_playback_done,
         )
 

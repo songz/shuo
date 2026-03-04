@@ -23,7 +23,8 @@ from fastapi import WebSocket
 
 from .types import (
     AppState,
-    Event, StreamStartEvent, StreamStopEvent,
+    Phase,
+    Event, StreamStartEvent, StreamStopEvent, MediaEvent,
     FluxStartOfTurnEvent, FluxEndOfTurnEvent, AgentTurnDoneEvent,
     FeedFluxAction, StartAgentTurnAction, ResetAgentTurnAction,
 )
@@ -31,6 +32,7 @@ from .state import process_event
 from .services.flux import FluxService
 from .services.tts_pool import TTSPool
 from .services.twilio_client import parse_twilio_message
+from .services.local_audio import LocalAudioIO
 from .agent import Agent
 from .tracer import Tracer
 from .log import Logger, get_logger
@@ -123,7 +125,8 @@ async def run_conversation_over_twilio(websocket: WebSocket) -> None:
             for action in actions:
                 event_log.action(action)
                 if isinstance(action, FeedFluxAction):
-                    await flux.send(action.audio_bytes)
+                    if state.phase == Phase.LISTENING:
+                        await flux.send(action.audio_bytes)
 
                 elif isinstance(action, StartAgentTurnAction):
                     if agent:
@@ -159,3 +162,84 @@ async def run_conversation_over_twilio(websocket: WebSocket) -> None:
         tracer.save(call_id)
 
         Logger.websocket_disconnected()
+
+
+async def run_conversation_local() -> None:
+    """
+    Main event loop for local microphone/speaker mode.
+
+    Reuses the same state machine and agent pipeline as Twilio mode,
+    but sources audio from local mic and plays audio on local speakers.
+    """
+    event_log = Logger(verbose=False)
+    event_queue: asyncio.Queue[Event] = asyncio.Queue()
+    tracer = Tracer()
+
+    agent: Optional[Agent] = None
+    tts_pool = TTSPool(pool_size=1, ttl=8.0)
+
+    async def on_flux_end_of_turn(transcript: str) -> None:
+        await event_queue.put(FluxEndOfTurnEvent(transcript=transcript))
+
+    async def on_flux_start_of_turn() -> None:
+        await event_queue.put(FluxStartOfTurnEvent())
+
+    async def on_mic_audio(audio_bytes: bytes) -> None:
+        await event_queue.put(MediaEvent(audio_bytes=audio_bytes))
+
+    flux = FluxService(
+        on_end_of_turn=on_flux_end_of_turn,
+        on_start_of_turn=on_flux_start_of_turn,
+    )
+    local_audio = LocalAudioIO(on_mic_audio=on_mic_audio)
+
+    state = AppState()
+
+    try:
+        await flux.start()
+        await tts_pool.start()
+        await local_audio.start()
+
+        await event_queue.put(StreamStartEvent(stream_sid="local"))
+
+        while True:
+            event = await event_queue.get()
+            event_log.event(event)
+
+            if isinstance(event, StreamStartEvent):
+                agent = Agent(
+                    websocket=None,
+                    stream_sid="local",
+                    on_done=lambda: event_queue.put_nowait(AgentTurnDoneEvent()),
+                    tts_pool=tts_pool,
+                    tracer=tracer,
+                    local_audio=local_audio,
+                )
+
+            old_phase = state.phase
+            state, actions = process_event(state, event)
+            event_log.transition(old_phase, state.phase)
+
+            for action in actions:
+                event_log.action(action)
+                if isinstance(action, FeedFluxAction):
+                    if state.phase == Phase.LISTENING:
+                        await flux.send(action.audio_bytes)
+
+                elif isinstance(action, StartAgentTurnAction):
+                    if agent:
+                        await agent.start_turn(action.transcript)
+
+                elif isinstance(action, ResetAgentTurnAction):
+                    if agent:
+                        await agent.cancel_turn()
+
+    finally:
+        if agent:
+            await agent.cleanup()
+
+        await local_audio.stop()
+        await tts_pool.stop()
+        await flux.stop()
+
+        tracer.save("local")

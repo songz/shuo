@@ -29,11 +29,41 @@ class LLMService:
     ):
         self._on_token = on_token
         self._on_done = on_done
-        
-        self._client = AsyncOpenAI(
-            api_key=os.getenv("GROQ_API_KEY", ""),
-            base_url="https://api.groq.com/openai/v1",
-        )
+
+        model_env = os.getenv("LLM_MODEL", "").strip()
+        provider = os.getenv("LLM_PROVIDER", "auto").strip().lower()
+        openai_key = os.getenv("OPENAI_API_KEY", "")
+        groq_key = os.getenv("GROQ_API_KEY", "")
+
+        use_groq = False
+        if provider == "groq":
+            use_groq = True
+        elif provider == "openai":
+            use_groq = False
+        else:
+            if model_env:
+                lower_model = model_env.lower()
+                use_groq = lower_model.startswith("llama") or lower_model.startswith("mixtral")
+            elif groq_key and not openai_key:
+                use_groq = True
+
+        if use_groq:
+            if not groq_key:
+                raise ValueError("LLM provider is groq, but GROQ_API_KEY is missing")
+            self._client = AsyncOpenAI(
+                api_key=groq_key,
+                base_url="https://api.groq.com/openai/v1",
+            )
+            self._model = model_env or "llama-3.3-70b-versatile"
+            self._provider = "groq"
+        else:
+            if not openai_key:
+                raise ValueError("LLM provider is openai, but OPENAI_API_KEY is missing")
+            self._client = AsyncOpenAI(api_key=openai_key)
+            self._model = model_env or "gpt-4o-mini"
+            self._provider = "openai"
+
+        log.info(f"Provider: {self._provider}, model: {self._model}")
         self._task: Optional[asyncio.Task] = None
         self._running = False
         
@@ -85,7 +115,7 @@ class LLMService:
             ] + self._history
             
             stream = await self._client.chat.completions.create(
-                model=os.getenv("LLM_MODEL", "llama-3.3-70b-versatile"),
+                model=self._model,
                 messages=messages,
                 stream=True,
                 max_tokens=500,

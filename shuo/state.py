@@ -23,11 +23,21 @@ def process_event(state: AppState, event: Event) -> Tuple[AppState, List[Action]
     """
     Pure state machine: (State, Event) -> (State, Actions)
 
-    With Flux, this is just a simple router:
-    - MediaEvent        -> feed audio to Flux
-    - FluxEndOfTurnEvent -> start agent response
-    - FluxStartOfTurnEvent -> interrupt (barge-in)
-    - AgentTurnDoneEvent -> back to listening
+        Action mapping (with human examples):
+        - MediaEvent -> FeedFluxAction
+            Example: user is talking into the mic; each chunk is sent to Flux.
+
+        - FluxEndOfTurnEvent (LISTENING, non-empty transcript) -> StartAgentTurnAction
+            Example: user finishes "What's the weather?" -> assistant starts reply.
+
+        - FluxStartOfTurnEvent (RESPONDING) -> ResetAgentTurnAction
+            Example: assistant is speaking and user interrupts (barge-in) -> cancel.
+
+        - StreamStopEvent (RESPONDING) -> ResetAgentTurnAction
+            Example: call/socket ends mid-response -> stop playback and cleanup.
+
+        - AgentTurnDoneEvent (RESPONDING) -> no action, phase returns to LISTENING.
+            Example: assistant finishes speaking and waits for next user turn.
     """
     if isinstance(event, StreamStartEvent):
         return replace(state, stream_sid=event.stream_sid, phase=Phase.LISTENING), []
@@ -48,8 +58,8 @@ def process_event(state: AppState, event: Event) -> Tuple[AppState, List[Action]
         return state, []
 
     if isinstance(event, FluxStartOfTurnEvent):
-        if state.phase == Phase.RESPONDING:
-            return replace(state, phase=Phase.LISTENING), [ResetAgentTurnAction()]
+        #if state.phase == Phase.RESPONDING:
+            #return replace(state, phase=Phase.LISTENING), [ResetAgentTurnAction()]
         return state, []
 
     if isinstance(event, AgentTurnDoneEvent):
