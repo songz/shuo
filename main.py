@@ -121,6 +121,9 @@ while running:
         current_state = 'idle'
         StateLoader.load_state(current_state)
 
+    # keep current state animated (cycles multi-image states every second)
+    StateLoader.load_state(current_state)
+
     clock.tick(30)  # 30 FPS
 
 
