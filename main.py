@@ -29,8 +29,7 @@ STATES = {
 }
 
 # start in warmup and immediately begin listening
-current_state = 'warmup'
-StateLoader.load_state(current_state)
+StateLoader.load_state('warmup')
 
 # create wakeword listener; by default it loads built-in models
 # create wakeword listener with 2-second window to capture longer phrases
@@ -38,8 +37,7 @@ listener = WakewordListener()
 listener.start()
 
 # once the mic is active, switch to idle
-current_state = 'idle'
-StateLoader.load_state(current_state)
+StateLoader.load_state('idle')
 
 
 # Main loop
@@ -55,6 +53,7 @@ print("  4 = Listening")
 print("  5 = Speaking")
 print("  6 = Thinking")
 print("  7 = Warmup")
+print("Touch screen toggles Idle <-> Listening")
 print("Press ESC or close window to exit")
 
 while running:
@@ -67,18 +66,26 @@ while running:
                 state_folder = STATES[event.key]
                 print(f"Loading {state_folder}...")
                 StateLoader.load_state(state_folder)
-                current_state = state_folder
                 print(f"Displayed {state_folder}")
             
             # ESC key to exit
             elif event.key == pygame.K_ESCAPE:
                 running = False
+        elif event.type == pygame.FINGERDOWN or (
+            event.type == pygame.MOUSEBUTTONDOWN and event.button == 1
+        ):
+            current_state = StateLoader.get_current_state()
+            if current_state == 'idle':
+                StateLoader.load_state('listening')
+                print("Touch toggle -> listening")
+            elif current_state == 'listening':
+                StateLoader.load_state('idle')
+                print("Touch toggle -> idle")
 
     # wakeword detection poll
     if listener.got_wakeword():
         print("Wakeword detected!")
-        current_state = 'capturing'
-        StateLoader.load_state(current_state)
+        StateLoader.load_state('capturing')
         # Stop wakeword listener so we can record from the mic
         listener.stop()
 
@@ -98,8 +105,7 @@ while running:
             wavfile.write(wav_path, sr, wav_int16)
 
             # show thinking face while transcribing
-            current_state = 'thinking'
-            StateLoader.load_state(current_state)
+            StateLoader.load_state('thinking')
 
             try:
                 transcript = transcribe_file(wav_path)
@@ -118,11 +124,12 @@ while running:
 
         # restart listener and go back to idle
         listener.start()
-        current_state = 'idle'
-        StateLoader.load_state(current_state)
+        StateLoader.load_state('idle')
 
-    # keep current state animated (cycles multi-image states every second)
-    StateLoader.load_state(current_state)
+    # keep current state animated
+    current_state = StateLoader.get_current_state()
+    if current_state is not None:
+        StateLoader.load_state(current_state)
 
     clock.tick(30)  # 30 FPS
 

@@ -97,8 +97,12 @@ class StateLoader:
         y = (screen_height - img.get_height()) // 2
         screen.blit(img, (x, y))
         pygame.display.flip()
-        cls._frame_interval_seconds = random.uniform(0.0, 1.0)
+        cls._frame_interval_seconds = random.uniform(0.3, 1.0)
         return True
+
+    @classmethod
+    def get_current_state(cls):
+        return cls._current_state
 
     @classmethod
     def load_state(cls, state_name):
