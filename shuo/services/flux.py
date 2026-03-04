@@ -43,7 +43,6 @@ class FluxService:
         self._cm = None
         self._listener_task: Optional[asyncio.Task] = None
         self._running = False
-        log.error("Send failed", self._api_key)
         
     @property
     def is_active(self) -> bool:

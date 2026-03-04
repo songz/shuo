@@ -88,7 +88,9 @@ class LocalAudioIO:
     ):
         self._on_mic_audio = on_mic_audio
         self._sample_rate = sample_rate
-        self._frame_samples = int(sample_rate * frame_ms / 1000)
+        self._frame_ms = frame_ms
+        self._device_sample_rate = sample_rate
+        self._frame_samples = int(self._device_sample_rate * self._frame_ms / 1000)
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._input_stream: Optional[sd.InputStream] = None
@@ -98,6 +100,20 @@ class LocalAudioIO:
         self._playback_buffer = bytearray()
         self._buffer_lock = threading.Lock()
 
+    @staticmethod
+    def _resample_int16(samples: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
+        """Resample mono int16 audio between sample rates using linear interpolation."""
+        if src_rate == dst_rate or samples.size == 0:
+            return samples
+
+        src_len = samples.size
+        dst_len = max(1, int(round(src_len * (dst_rate / src_rate))))
+
+        src_x = np.linspace(0.0, 1.0, num=src_len, endpoint=False)
+        dst_x = np.linspace(0.0, 1.0, num=dst_len, endpoint=False)
+        resampled = np.interp(dst_x, src_x, samples.astype(np.float32))
+        return np.clip(resampled, -32768, 32767).astype(np.int16)
+
     async def start(self) -> None:
         """Start microphone capture and speaker playback."""
         if self._running:
@@ -105,15 +121,34 @@ class LocalAudioIO:
 
         self._loop = asyncio.get_running_loop()
 
+        try:
+            default_input = sd.query_devices(None, "input")
+            input_rate = int(round(default_input.get("default_samplerate", self._sample_rate)))
+        except Exception:
+            input_rate = self._sample_rate
+
+        try:
+            default_output = sd.query_devices(None, "output")
+            output_rate = int(round(default_output.get("default_samplerate", self._sample_rate)))
+        except Exception:
+            output_rate = self._sample_rate
+
+        self._device_sample_rate = max(self._sample_rate, input_rate, output_rate)
+        self._frame_samples = int(self._device_sample_rate * self._frame_ms / 1000)
+        log.info(
+            f"Input/Output opened at {self._device_sample_rate} Hz; "
+            f"streaming to services at {self._sample_rate} Hz"
+        )
+
         self._input_stream = sd.InputStream(
-            samplerate=self._sample_rate,
+            samplerate=self._device_sample_rate,
             channels=1,
             dtype="int16",
             blocksize=self._frame_samples,
             callback=self._on_input,
         )
         self._output_stream = sd.OutputStream(
-            samplerate=self._sample_rate,
+            samplerate=self._device_sample_rate,
             channels=1,
             dtype="int16",
             blocksize=self._frame_samples,
@@ -149,6 +184,12 @@ class LocalAudioIO:
 
         ulaw_bytes = base64.b64decode(audio_base64)
         pcm_bytes = ulaw_bytes_to_pcm16(ulaw_bytes)
+        pcm = np.frombuffer(pcm_bytes, dtype=np.int16)
+
+        if self._device_sample_rate != self._sample_rate:
+            pcm = self._resample_int16(pcm, self._sample_rate, self._device_sample_rate)
+
+        pcm_bytes = pcm.tobytes()
 
         with self._buffer_lock:
             self._playback_buffer.extend(pcm_bytes)
@@ -171,7 +212,11 @@ class LocalAudioIO:
         if not self._running or not self._loop:
             return
 
-        pcm_bytes = bytes(indata)
+        pcm = np.array(indata[:, 0], dtype=np.int16)
+        if self._device_sample_rate != self._sample_rate:
+            pcm = self._resample_int16(pcm, self._device_sample_rate, self._sample_rate)
+
+        pcm_bytes = pcm.tobytes()
         ulaw_bytes = pcm16_bytes_to_ulaw(pcm_bytes)
         asyncio.run_coroutine_threadsafe(self._on_mic_audio(ulaw_bytes), self._loop)
 

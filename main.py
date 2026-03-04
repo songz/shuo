@@ -13,18 +13,18 @@ from scipy.io import wavfile
 from state_loader import StateLoader
 from wakeword import WakewordListener
 from asr_whispercpp import transcribe_file
+from pathlib import Path
+from dotenv import load_dotenv
+
+
+# Load environment variables from project root before service imports
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
 
 import asyncio
 
 
 from shuo.conversation import run_conversation_local
 from shuo.log import setup_logging, Logger, get_logger
-
-from dotenv import load_dotenv
-
-
-# Load environment variables
-load_dotenv()
 
 # Initialize Pygame
 pygame.init()
