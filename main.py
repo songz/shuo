@@ -6,32 +6,16 @@ Press number keys 1-7 to switch between different face states.
 
 import pygame
 import sys
-import time
 import tempfile
 import os
 import numpy as np
 from scipy.io import wavfile
-from load_face import load_face
+from state_loader import StateLoader
 from wakeword import WakewordListener
 from asr_whispercpp import transcribe_file
 
 # Initialize Pygame
 pygame.init()
-
-# Get the display info and set up full-screen
-info = pygame.display.get_surface()
-if info is None:
-    # If no surface yet, get the desktop size
-    display_info = pygame.display.Info()
-    SCREEN_WIDTH = display_info.current_w
-    SCREEN_HEIGHT = display_info.current_h
-else:
-    SCREEN_WIDTH = info.get_width()
-    SCREEN_HEIGHT = info.get_height()
-
-# Create full-screen display
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
-pygame.display.set_caption("Tammy - Face Display")
 
 # Define the state folders and their key mappings
 STATES = {
@@ -44,27 +28,9 @@ STATES = {
     pygame.K_7: 'warmup',
 }
 
-# Create a blank black surface as default
-current_image = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-current_image.fill((0, 0, 0))
-
-# helper to show a face state on screen
-
-def show_state(state_name: str):
-    """Load and display a face for the given state."""
-    img = load_face(state_name, SCREEN_WIDTH, SCREEN_HEIGHT)
-    if img:
-        screen.fill((0, 0, 0))
-        x = (SCREEN_WIDTH - img.get_width()) // 2
-        y = (SCREEN_HEIGHT - img.get_height()) // 2
-        screen.blit(img, (x, y))
-        pygame.display.flip()
-    else:
-        print(f"Unable to show state '{state_name}'")
-
 # start in warmup and immediately begin listening
 current_state = 'warmup'
-show_state(current_state)
+StateLoader.load_state(current_state)
 
 # create wakeword listener; by default it loads built-in models
 # create wakeword listener with 2-second window to capture longer phrases
@@ -73,7 +39,7 @@ listener.start()
 
 # once the mic is active, switch to idle
 current_state = 'idle'
-show_state(current_state)
+StateLoader.load_state(current_state)
 
 
 # Main loop
@@ -100,7 +66,7 @@ while running:
             if event.key in STATES:
                 state_folder = STATES[event.key]
                 print(f"Loading {state_folder}...")
-                show_state(state_folder)
+                StateLoader.load_state(state_folder)
                 current_state = state_folder
                 print(f"Displayed {state_folder}")
             
@@ -112,7 +78,7 @@ while running:
     if listener.got_wakeword():
         print("Wakeword detected!")
         current_state = 'capturing'
-        show_state(current_state)
+        StateLoader.load_state(current_state)
         # Stop wakeword listener so we can record from the mic
         listener.stop()
 
@@ -133,7 +99,7 @@ while running:
 
             # show thinking face while transcribing
             current_state = 'thinking'
-            show_state(current_state)
+            StateLoader.load_state(current_state)
 
             try:
                 transcript = transcribe_file(wav_path)
@@ -153,7 +119,7 @@ while running:
         # restart listener and go back to idle
         listener.start()
         current_state = 'idle'
-        show_state(current_state)
+        StateLoader.load_state(current_state)
 
     clock.tick(30)  # 30 FPS
 
