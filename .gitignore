@@ -21,3 +21,5 @@ Thumbs.db
 
 # ignore cloned or built whisper.cpp sources/binaries
 whisper.cpp/
+
+.env

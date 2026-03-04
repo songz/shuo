@@ -14,6 +14,18 @@ from state_loader import StateLoader
 from wakeword import WakewordListener
 from asr_whispercpp import transcribe_file
 
+import asyncio
+
+
+from shuo.conversation import run_conversation_local
+from shuo.log import setup_logging, Logger, get_logger
+
+from dotenv import load_dotenv
+
+
+# Load environment variables
+load_dotenv()
+
 # Initialize Pygame
 pygame.init()
 
@@ -85,46 +97,11 @@ while running:
     # wakeword detection poll
     if listener.got_wakeword():
         print("Wakeword detected!")
-        StateLoader.load_state('capturing')
+        StateLoader.load_state('listening')
         # Stop wakeword listener so we can record from the mic
         listener.stop()
+        asyncio.run(run_conversation_local())
 
-        # record additional audio (user speech) for a short duration
-        RECORD_SECONDS = 4.0
-        sr = listener.sample_rate
-        print(f"Recording {RECORD_SECONDS}s at {sr}Hz for ASR...")
-        try:
-            import sounddevice as sd
-            recording = sd.rec(int(RECORD_SECONDS * sr), samplerate=sr, channels=1, dtype='float32')
-            sd.wait()
-            # save to temporary WAV
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tf:
-                wav_path = tf.name
-            # convert float32 to int16
-            wav_int16 = (recording.flatten() * 32767).astype(np.int16)
-            wavfile.write(wav_path, sr, wav_int16)
-
-            # show thinking face while transcribing
-            StateLoader.load_state('thinking')
-
-            try:
-                transcript = transcribe_file(wav_path)
-                print('ASR transcript:')
-                print(transcript)
-            except Exception as e:
-                print(f"ASR error: {e}")
-            finally:
-                try:
-                    os.remove(wav_path)
-                except Exception:
-                    pass
-
-        except Exception as e:
-            print(f"Recording error: {e}")
-
-        # restart listener and go back to idle
-        listener.start()
-        StateLoader.load_state('idle')
 
     # keep current state animated
     current_state = StateLoader.get_current_state()
