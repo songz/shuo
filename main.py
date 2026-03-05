@@ -30,8 +30,8 @@ def check_environment() -> bool:
         "DEEPGRAM_API_KEY",
         "ELEVENLABS_API_KEY",
     ]
-    if not (os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")):
-        logger.error("Missing environment variables: OPENAI_API_KEY or GROQ_API_KEY")
+    if not (os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY") or os.getenv("ANTHROPIC_API_KEY")):
+        logger.error("Missing environment variables: OPENAI_API_KEY or GROQ_API_KEY or ANTHROPIC_API_KEY")
         return False
 
     missing = [var for var in required_vars if not os.getenv(var)]

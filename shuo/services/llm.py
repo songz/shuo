@@ -7,6 +7,7 @@ import asyncio
 from typing import Optional, Callable, Awaitable, List, Dict
 
 from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
 
 from ..log import ServiceLogger
 
@@ -34,10 +35,15 @@ class LLMService:
         provider = os.getenv("LLM_PROVIDER", "auto").strip().lower()
         openai_key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
 
-        use_groq = True
-
-        if use_groq:
+        if provider == "anthropic" or (provider == "auto" and anthropic_key):
+            if not anthropic_key:
+                raise ValueError("LLM provider is anthropic, but ANTHROPIC_API_KEY is missing")
+            self._client = AsyncAnthropic(api_key=anthropic_key)
+            self._model = model_env or "claude-3-5-haiku-latest"
+            self._provider = "anthropic"
+        elif provider == "groq" or (provider == "auto" and groq_key):
             if not groq_key:
                 raise ValueError("LLM provider is groq, but GROQ_API_KEY is missing")
             self._client = AsyncOpenAI(
@@ -100,27 +106,47 @@ class LLMService:
         assistant_response = ""
         
         try:
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT}
-            ] + self._history
-            
-            stream = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                stream=True,
-                max_tokens=500,
-                temperature=0.7,
-            )
-            
-            async for chunk in stream:
-                if not self._running:
-                    break
-                
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if delta and delta.content:
-                    token = delta.content
-                    assistant_response += token
-                    await self._on_token(token)
+            if self._provider == "anthropic":
+                messages = self._history.copy()
+                stream = await self._client.messages.create(
+                    model=self._model,
+                    system=SYSTEM_PROMPT,
+                    messages=messages,
+                    max_tokens=500,
+                    temperature=0.7,
+                    stream=True,
+                )
+
+                async for event in stream:
+                    if not self._running:
+                        break
+
+                    if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                        token = event.delta.text
+                        assistant_response += token
+                        await self._on_token(token)
+            else:
+                messages = [
+                    {"role": "system", "content": SYSTEM_PROMPT}
+                ] + self._history
+
+                stream = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    stream=True,
+                    max_tokens=500,
+                    temperature=0.7,
+                )
+
+                async for chunk in stream:
+                    if not self._running:
+                        break
+
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if delta and delta.content:
+                        token = delta.content
+                        assistant_response += token
+                        await self._on_token(token)
             
             if self._running and assistant_response:
                 self._history.append({"role": "assistant", "content": assistant_response})

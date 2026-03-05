@@ -9,6 +9,7 @@ openwakeword>=0.4.0
 
 # conversation / services
 openai>=1.40.0
+anthropic>=0.34.0
 fastapi>=0.111.0
 websockets>=12.0
 deepgram-sdk>=3.7.0
