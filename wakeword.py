@@ -5,16 +5,13 @@ Wakeword detection helper using openwakeword and sounddevice.
 import threading
 import queue
 import os
-import time
-import tempfile
 import sounddevice as sd
 import numpy as np
-from scipy.io import wavfile
 import openwakeword
 import scipy.signal 
 
 # Configuration
-CHUNK_SIZE = 1280*2
+MODEL_CHUNK_SIZE = 1280 * 2
 SAMPLE_RATE = 16000  # Hz
 #WAKEWORD_MODEL = os.path.join(os.path.dirname(__file__), "hey_rhasspy_v0.1.onnx")
 WAKEWORD_MODEL = os.path.join(os.path.dirname(__file__), "wakeword.onnx")
@@ -38,7 +35,7 @@ class WakewordListener:
 
     def __init__(self, samplerate=None,
                  threshold: float = 0.5, debug: bool = False,
-                 window_seconds: float = 0.08):
+                 window_seconds: float = 0.5):
         """Create a listener.
 
         ``window_seconds`` controls how much audio (in seconds) is fed to the
@@ -61,13 +58,15 @@ class WakewordListener:
         self.model = openwakeword.Model(wakeword_model_paths=[WAKEWORD_MODEL])
         print(f"Loaded wake word model: {WAKEWORD_MODEL}")
 
+        self.debug = debug
+
         device_info = sd.query_devices(kind='input')
         native_rate = int(device_info['default_samplerate'])
         self.use_resampling = (native_rate != SAMPLE_RATE)
         
         self.input_rate = native_rate if self.use_resampling else SAMPLE_RATE
         self.sample_rate = self.input_rate
-        self.input_chunk_size = int(CHUNK_SIZE * (self.input_rate / SAMPLE_RATE)) if self.use_resampling else CHUNK_SIZE
+        self.input_chunk_size = int(MODEL_CHUNK_SIZE * (self.input_rate / SAMPLE_RATE)) if self.use_resampling else MODEL_CHUNK_SIZE
 
         self.stream = None
         self.event_queue = queue.Queue()
@@ -98,13 +97,19 @@ class WakewordListener:
             # Convert audio to mono float32
             audio_data = indata[:, 0].astype(np.int16)
             if self.use_resampling:
-                audio_data = scipy.signal.resample(audio_data, CHUNK_SIZE).astype(np.int16)
+                audio_data = scipy.signal.resample(audio_data, MODEL_CHUNK_SIZE).astype(np.int16)
             # Pass audio to detector
             scores = self.model.predict(audio_data)
+            if self.debug:
+                print(f"RMS scores prediction, Scores: {scores}")
             if scores:
                 max_score = max(scores.values())
+                if self.debug:
+                    print(f"Max score: {max_score}, Threshold: {self.threshold} {max_score >= self.threshold}")
                 # require both model score and a minimum energy
                 if max_score >= self.threshold:
+                    if self.debug:
+                        print("Setting true to event queue")
                     self.event_queue.put(True)
         try:
             self.stream = sd.InputStream(

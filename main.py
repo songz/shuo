@@ -4,21 +4,17 @@ Full-screen image display app for different states.
 Press number keys 1-7 to switch between different face states.
 """
 
-import pygame
 import sys
 import tempfile
 import os
 import numpy as np
 from scipy.io import wavfile
-from state_loader import StateLoader
 from wakeword import WakewordListener
 from asr_whispercpp import transcribe_file
 from pathlib import Path
 from dotenv import load_dotenv
 
-
-# Load environment variables from project root before service imports
-load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
+load_dotenv()
 
 import asyncio
 
@@ -26,35 +22,10 @@ import asyncio
 from shuo.conversation import run_conversation_local
 from shuo.log import setup_logging, Logger, get_logger
 
-# Initialize Pygame
-pygame.init()
 
-# Define the state folders and their key mappings
-STATES = {
-    pygame.K_1: 'capturing',
-    pygame.K_2: 'error',
-    pygame.K_3: 'idle',
-    pygame.K_4: 'listening',
-    pygame.K_5: 'speaking',
-    pygame.K_6: 'thinking',
-    pygame.K_7: 'warmup',
-}
-
-# start in warmup and immediately begin listening
-StateLoader.load_state('warmup')
-
-# create wakeword listener; by default it loads built-in models
-# create wakeword listener with 2-second window to capture longer phrases
-listener = WakewordListener()
-listener.start()
-
-# once the mic is active, switch to idle
-StateLoader.load_state('idle')
+setup_logging()
 
 
-# Main loop
-clock = pygame.time.Clock()
-running = True
 
 print("Full-screen image display app started")
 print("Press number keys 1-7 to switch between states:")
@@ -67,50 +38,6 @@ print("  6 = Thinking")
 print("  7 = Warmup")
 print("Touch screen toggles Idle <-> Listening")
 print("Press ESC or close window to exit")
+ 
+asyncio.run(run_conversation_local())
 
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.KEYDOWN:
-            # Check if it's a number key (1-7)
-            if event.key in STATES:
-                state_folder = STATES[event.key]
-                print(f"Loading {state_folder}...")
-                StateLoader.load_state(state_folder)
-                print(f"Displayed {state_folder}")
-            
-            # ESC key to exit
-            elif event.key == pygame.K_ESCAPE:
-                running = False
-        elif event.type == pygame.FINGERDOWN or (
-            event.type == pygame.MOUSEBUTTONDOWN and event.button == 1
-        ):
-            current_state = StateLoader.get_current_state()
-            if current_state == 'idle':
-                StateLoader.load_state('listening')
-                print("Touch toggle -> listening")
-            elif current_state == 'listening':
-                StateLoader.load_state('idle')
-                print("Touch toggle -> idle")
-
-    # wakeword detection poll
-    if listener.got_wakeword():
-        print("Wakeword detected!")
-        StateLoader.load_state('listening')
-        # Stop wakeword listener so we can record from the mic
-        listener.stop()
-        asyncio.run(run_conversation_local())
-
-
-    # keep current state animated
-    current_state = StateLoader.get_current_state()
-    if current_state is not None:
-        StateLoader.load_state(current_state)
-
-    clock.tick(30)  # 30 FPS
-
-
-
-pygame.quit()
-sys.exit()
