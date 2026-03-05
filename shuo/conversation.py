@@ -16,6 +16,7 @@ Events come from:
 """
 
 import asyncio
+import pygame
 from typing import Optional
 
 from .types import (
@@ -33,6 +34,9 @@ from .agent import Agent
 from .tracer import Tracer
 from .log import Logger
 
+from state_loader import StateLoader
+
+
 async def run_conversation_local() -> None:
     """
     Main event loop for local microphone/speaker mode.
@@ -46,6 +50,9 @@ async def run_conversation_local() -> None:
 
     agent: Optional[Agent] = None
     tts_pool = TTSPool(pool_size=1, ttl=8.0)
+    
+    pygame.init()
+    StateLoader.load_state('idle')
 
     async def on_flux_end_of_turn(transcript: str) -> None:
         await event_queue.put(FluxEndOfTurnEvent(transcript=transcript))
@@ -89,6 +96,12 @@ async def run_conversation_local() -> None:
             state, actions = process_event(state, event)
             event_log.transition(old_phase, state.phase)
 
+            if state.phase == Phase.LISTENING:
+                StateLoader.load_state('listening')
+            elif state.phase == Phase.RESPONDING:
+                StateLoader.load_state('speaking')
+
+
             for action in actions:
                 event_log.action(action)
                 if isinstance(action, FeedFluxAction):
@@ -112,3 +125,5 @@ async def run_conversation_local() -> None:
         await flux.stop()
 
         tracer.save("local")
+
+    pygame.quit()
