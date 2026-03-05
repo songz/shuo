@@ -35,17 +35,7 @@ class LLMService:
         openai_key = os.getenv("OPENAI_API_KEY", "")
         groq_key = os.getenv("GROQ_API_KEY", "")
 
-        use_groq = False
-        if provider == "groq":
-            use_groq = True
-        elif provider == "openai":
-            use_groq = False
-        else:
-            if model_env:
-                lower_model = model_env.lower()
-                use_groq = lower_model.startswith("llama") or lower_model.startswith("mixtral")
-            elif groq_key and not openai_key:
-                use_groq = True
+        use_groq = True
 
         if use_groq:
             if not groq_key:

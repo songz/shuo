@@ -1,43 +1,61 @@
 #!/usr/bin/env python3
 """
-Full-screen image display app for different states.
-Press number keys 1-7 to switch between different face states.
+shuo - Voice Agent Framework
+
+Usage:
+    python main.py                  # local microphone/speaker mode
+
+Runs the local conversation loop directly.
 """
 
-import sys
-import tempfile
 import os
-import numpy as np
-from scipy.io import wavfile
-from wakeword import WakewordListener
-from asr_whispercpp import transcribe_file
-from pathlib import Path
+import sys
+import asyncio
 from dotenv import load_dotenv
 
+from shuo.log import setup_logging, Logger, get_logger
+from shuo.conversation import run_conversation_local
+
+# Load environment variables
 load_dotenv()
 
-import asyncio
-
-
-from shuo.conversation import run_conversation_local
-from shuo.log import setup_logging, Logger, get_logger
-
-
+# Setup logging
 setup_logging()
+logger = get_logger("shuo")
 
 
+def check_environment() -> bool:
+    """Check that all required environment variables are set."""
+    required_vars = [
+        "DEEPGRAM_API_KEY",
+        "ELEVENLABS_API_KEY",
+    ]
+    if not (os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")):
+        logger.error("Missing environment variables: OPENAI_API_KEY or GROQ_API_KEY")
+        return False
 
-print("Full-screen image display app started")
-print("Press number keys 1-7 to switch between states:")
-print("  1 = Capturing")
-print("  2 = Error")
-print("  3 = Idle")
-print("  4 = Listening")
-print("  5 = Speaking")
-print("  6 = Thinking")
-print("  7 = Warmup")
-print("Touch screen toggles Idle <-> Listening")
-print("Press ESC or close window to exit")
- 
-asyncio.run(run_conversation_local())
+    missing = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing:
+        logger.error(f"Missing environment variables: {', '.join(missing)}")
+        return False
+    
+    return True
 
+def main():
+    # Check environment
+    if not check_environment():
+        sys.exit(1)
+
+    try:
+        logger.info("Local mode — microphone/speaker (Ctrl+C to end)")
+        asyncio.run(run_conversation_local())
+    except KeyboardInterrupt:
+        Logger.shutdown()
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
