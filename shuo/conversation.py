@@ -99,7 +99,7 @@ async def run_conversation_local() -> None:
             if state.phase == Phase.LISTENING:
                 StateLoader.load_state('listening')
             elif state.phase == Phase.RESPONDING:
-                StateLoader.load_state('speaking')
+                StateLoader.load_state('thinking')
 
 
             for action in actions:

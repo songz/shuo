@@ -9,6 +9,7 @@ import pygame
 class StateLoader:
     _screen = None
     _current_state = None
+    is_speaking = False
     _state_images = []
     _image_index = 0
     _last_advance_time = 0.0
@@ -107,6 +108,14 @@ class StateLoader:
     @classmethod
     def load_state(cls, state_name):
         """Load and display a face for the given state name."""
+        if state_name == 'thinking' and cls.is_speaking:
+            state_name = 'speaking'
+
+        if state_name == 'listening':
+            cls.is_speaking = False
+        elif state_name == 'speaking':
+            cls.is_speaking = True
+
         now = time.monotonic()
 
         if state_name != cls._current_state:

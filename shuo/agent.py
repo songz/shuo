@@ -23,6 +23,7 @@ from .services.player import AudioPlayer
 from .services.local_audio import LocalAudioIO
 from .tracer import Tracer
 from .log import ServiceLogger
+from state_loader import StateLoader
 
 log = ServiceLogger("Agent")
 
@@ -163,6 +164,8 @@ class Agent:
         """LLM produced a token -> feed to TTS."""
         if not self._active or not self._tts:
             return
+
+        StateLoader.load_state('speaking')
 
         if not self._got_first_token:
             self._got_first_token = True
