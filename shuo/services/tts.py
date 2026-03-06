@@ -34,6 +34,7 @@ class TTSService:
         self._ws: Optional[WebSocketClientProtocol] = None
         self._receive_task: Optional[asyncio.Task] = None
         self._running = False
+        self._audio_chunks_received = 0
         
         self._api_key = os.getenv("ELEVENLABS_API_KEY", "")
         self._voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
@@ -55,6 +56,9 @@ class TTSService:
         """Open WebSocket connection to ElevenLabs."""
         if self._running:
             return
+
+        if not self._api_key:
+            log.error("ELEVENLABS_API_KEY is missing")
         
         url = (
             f"wss://api.elevenlabs.io/v1/text-to-speech/{self._voice_id}/stream-input?"
@@ -82,6 +86,7 @@ class TTSService:
                 "xi_api_key": self._api_key,
             }
             await self._ws.send(json.dumps(init_message))
+            self._audio_chunks_received = 0
             
             self._receive_task = asyncio.create_task(self._receive_loop())
             log.connected()
@@ -165,7 +170,11 @@ class TTSService:
                 try:
                     message = await self._ws.recv()
                     await self._handle_message(message)
-                except websockets.exceptions.ConnectionClosed:
+                except websockets.exceptions.ConnectionClosed as e:
+                    log.error(
+                        "Connection closed "
+                        f"(code={getattr(e, 'code', 'unknown')}, reason={getattr(e, 'reason', '')})"
+                    )
                     break
                 except Exception as e:
                     log.error("Receive failed", e)
@@ -179,12 +188,20 @@ class TTSService:
         """Parse and handle ElevenLabs response."""
         try:
             data = json.loads(message)
+
+            if data.get("error"):
+                log.error(f"ElevenLabs error payload: {data.get('error')}")
+            elif data.get("message") and data.get("isFinal") is not True:
+                log.info(f"ElevenLabs message: {data.get('message')}")
             
             if "audio" in data and data["audio"]:
                 audio_base64 = data["audio"]
+                self._audio_chunks_received += 1
                 await self._on_audio(audio_base64)
             
             if data.get("isFinal", False):
+                if self._audio_chunks_received == 0:
+                    log.error("Received isFinal from ElevenLabs but no audio chunks were returned")
                 await self._on_done()
             
         except json.JSONDecodeError:
