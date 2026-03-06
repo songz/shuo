@@ -84,7 +84,7 @@ class LocalAudioIO:
         self,
         on_mic_audio: Callable[[bytes], Awaitable[None]],
         sample_rate: int = 8000,
-        frame_ms: int = 20,
+        frame_ms: int = 120,
     ):
         self._on_mic_audio = on_mic_audio
         self._sample_rate = sample_rate
