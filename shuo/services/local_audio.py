@@ -11,6 +11,7 @@ import threading
 from typing import Awaitable, Callable, Optional
 
 import numpy as np
+from scipy.signal import resample
 import sounddevice as sd
 
 from ..log import ServiceLogger
@@ -89,10 +90,12 @@ class LocalAudioIO:
         self._on_mic_audio = on_mic_audio
         self._sample_rate = sample_rate
         self._frame_samples = int(sample_rate * frame_ms / 1000)
+        self._input_sample_rate = sample_rate
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._input_stream: Optional[sd.InputStream] = None
         self._output_stream: Optional[sd.OutputStream] = None
+        self._output_enabled = True
         self._running = False
 
         self._playback_buffer = bytearray()
@@ -105,23 +108,55 @@ class LocalAudioIO:
 
         self._loop = asyncio.get_running_loop()
 
+        try:
+            input_info = sd.query_devices(kind="input")
+            default_rate = int(input_info.get("default_samplerate", self._sample_rate))
+            if default_rate > 0:
+                self._input_sample_rate = default_rate
+        except Exception:
+            self._input_sample_rate = self._sample_rate
+
+        input_frame_samples = int(self._input_sample_rate * 20 / 1000)
+
+        output_device_index = None
+        default_input, default_output = sd.default.device
+        if isinstance(default_output, int) and default_output >= 0:
+            output_device_index = default_output
+        else:
+            devices = sd.query_devices()
+            for index, device in enumerate(devices):
+                if int(device.get("max_output_channels", 0)) > 0:
+                    output_device_index = index
+                    break
+
+        if output_device_index is None:
+            self._output_enabled = False
+            log.info("No output audio device available; running in input-only mode")
+        else:
+            self._output_enabled = True
+
         self._input_stream = sd.InputStream(
-            samplerate=self._sample_rate,
+            samplerate=self._input_sample_rate,
             channels=1,
             dtype="int16",
-            blocksize=self._frame_samples,
+            blocksize=input_frame_samples,
             callback=self._on_input,
         )
-        self._output_stream = sd.OutputStream(
-            samplerate=self._sample_rate,
-            channels=1,
-            dtype="int16",
-            blocksize=self._frame_samples,
-            callback=self._on_output,
-        )
+        if self._output_enabled and output_device_index is not None:
+            self._output_stream = sd.OutputStream(
+                device=output_device_index,
+                samplerate=self._sample_rate,
+                channels=1,
+                dtype="int16",
+                blocksize=self._frame_samples,
+                callback=self._on_output,
+            )
+        else:
+            self._output_stream = None
 
         self._input_stream.start()
-        self._output_stream.start()
+        if self._output_stream:
+            self._output_stream.start()
         self._running = True
         log.connected()
 
@@ -144,7 +179,7 @@ class LocalAudioIO:
 
     async def play_ulaw_base64(self, audio_base64: str) -> None:
         """Queue ElevenLabs μ-law base64 chunk for local speaker playback."""
-        if not audio_base64:
+        if not audio_base64 or not self._output_enabled:
             return
 
         ulaw_bytes = base64.b64decode(audio_base64)
@@ -171,7 +206,12 @@ class LocalAudioIO:
         if not self._running or not self._loop:
             return
 
-        pcm_bytes = bytes(indata)
+        pcm = indata[:, 0].astype(np.int16, copy=False)
+        if self._input_sample_rate != self._sample_rate:
+            out_len = max(1, int(len(pcm) * self._sample_rate / self._input_sample_rate))
+            pcm = np.clip(np.round(resample(pcm.astype(np.float32), out_len)), -32768, 32767).astype(np.int16)
+
+        pcm_bytes = pcm.tobytes()
         ulaw_bytes = pcm16_bytes_to_ulaw(pcm_bytes)
         asyncio.run_coroutine_threadsafe(self._on_mic_audio(ulaw_bytes), self._loop)
 
