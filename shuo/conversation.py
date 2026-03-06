@@ -16,6 +16,7 @@ Events come from:
 """
 
 import asyncio
+import time
 import pygame
 from typing import Optional
 
@@ -50,6 +51,10 @@ async def run_conversation_local() -> None:
 
     agent: Optional[Agent] = None
     tts_pool = TTSPool(pool_size=1, ttl=8.0)
+    conversation_enabled = False
+    running = True
+    toggle_cooldown_seconds = 5.0
+    last_toggle_time = 0.0
     
     pygame.init()
     StateLoader.load_state('idle')
@@ -71,15 +76,58 @@ async def run_conversation_local() -> None:
 
     state = AppState()
 
+    async def set_conversation_enabled(enabled: bool) -> None:
+        nonlocal conversation_enabled, state, last_toggle_time
+
+        if enabled == conversation_enabled:
+            return
+
+        conversation_enabled = enabled
+        last_toggle_time = time.monotonic()
+
+        if conversation_enabled:
+            await flux.start()
+            await tts_pool.start()
+            await local_audio.start()
+            await event_queue.put(StreamStartEvent(stream_sid="local"))
+            StateLoader.load_state('listening')
+            return
+        if agent and agent.is_turn_active:
+            await agent.cancel_turn()
+
+        await local_audio.stop()
+        await tts_pool.stop()
+        await flux.stop()
+        StateLoader.load_state('idle')
+        state = AppState()
+
     try:
-        await flux.start()
-        await tts_pool.start()
-        await local_audio.start()
+        while running:
+            for pygame_event in pygame.event.get():
+                if pygame_event.type == pygame.QUIT:
+                    running = False
+                    break
 
-        await event_queue.put(StreamStartEvent(stream_sid="local"))
+                if pygame_event.type in (pygame.FINGERDOWN, pygame.MOUSEBUTTONDOWN):
+                    now = time.monotonic()
+                    print(
+                        f"Toggle conversation (elapsed={now - last_toggle_time:.2f}s, "
+                        f"cooldown={toggle_cooldown_seconds:.2f}s)"
+                    )
+                    if now - last_toggle_time >= toggle_cooldown_seconds:
+                        await set_conversation_enabled(not conversation_enabled)
 
-        while True:
-            event = await event_queue.get()
+            if not running:
+                break
+
+            try:
+                event = await asyncio.wait_for(event_queue.get(), timeout=0.05)
+            except asyncio.TimeoutError:
+                continue
+
+            if not conversation_enabled:
+                continue
+
             event_log.event(event)
 
             if isinstance(event, StreamStartEvent):
